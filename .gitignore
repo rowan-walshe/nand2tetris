@@ -2,3 +2,6 @@ tools/
 *.out
 *.cmp
 *.tst
+*.asm
+*.hack
+*.zip

@@ -1,0 +1,8 @@
+version: '3'
+services:
+    nand_2_tetris_gcc:
+        image: gcc:10.2.0
+        volumes:
+          - .:/usr/src/myapp
+        working_dir:
+          - /usr/src/myapp

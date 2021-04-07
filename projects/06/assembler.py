@@ -286,5 +286,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(dest="asm_file_path", type=str, help="Filepath of .asm program to be converted to .hack")
     args = parser.parse_args()
-    output_file_path = args.asm_file_path.rsplit('.')[0] + ".hack"
+    output_file_path = args.asm_file_path.rsplit('.', 1)[0] + ".hack"
     parse_asm(args.asm_file_path, output_file_path)

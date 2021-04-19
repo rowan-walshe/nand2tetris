@@ -1,19 +1,27 @@
 import argparse
-import re
 
+from copy import deepcopy
 from typing import List, Tuple
 
 
-def is_int(n: str) -> bool:
+def is_int(val: str) -> bool:
+    """Returns True if val is a valid int, False otherwise"""
     try:
-        int(n)
+        int(val)
         return True
     except ValueError:
         return False
 
 
-class VMLine:
+class VM_Error(Exception):
+    """Raised for invalid VM statements"""
 
+
+class VMLine:
+    """
+    Used to represent a single VM line, and conver it to a hack equivalent.
+    Will raise an
+    """
     COMMANDS = {"push": "_vm_push",
                 "pop": "_vm_pop",
                 "add": "_vm_add",
@@ -25,7 +33,7 @@ class VMLine:
                 "and": "_vm_and",
                 "or": "_vm_or",
                 "not": "_vm_not"}
-    
+
     MEMORY_SEGMENTS = {"local",
                        "argument",
                        "this",
@@ -42,19 +50,27 @@ class VMLine:
         self.__original_input: str = original_input
         self.__asm: Tuple = None
         self.__convert_vm_to_asm()
-    
+
     def __convert_vm_to_asm(self):
         command = self.__original_input.split(" ")[0]
         if command in VMLine.COMMANDS:
             getattr(self, VMLine.COMMANDS[command])()
         else:
-            raise Exception(f"Unrecognised VM command: '{self.__original_input}'")
+            raise VM_Error(f"Unrecognised VM command: '{self.__original_input}'")
+
+    @property
+    def line_number(self) -> int:
+        return self.__line_number
+
+    @property
+    def original_input(self) -> str:
+        return deepcopy(self.__original_input)
 
     def get_asm(self) -> Tuple[str]:
         if self.__asm is None:
-            raise Exception(f"Failed to convert VM command: '{self.__original_input}'")
+            raise VM_Error(f"Failed to convert VM command: '{self.__original_input}'")
         return self.__asm
-    
+
     def __validate_push_pop(self) -> List[str]:
         # A push/pop should have three distinct parts:
         # 1. 'push' or 'pop'
@@ -62,11 +78,11 @@ class VMLine:
         # 3. A positive integer (n >= 0)
         parts = self.__original_input.split(" ")
         if len(parts) != 3:
-            raise Exception(f"Unrecognised '{parts[0]}'' command: '{self.__original_input}'")
+            raise VM_Error(f"Unrecognised '{parts[0]}'' command: '{self.__original_input}'")
         if parts[1] not in VMLine.MEMORY_SEGMENTS:
-            raise Exception(f"Unrecognised memory segment: '{parts[1]}'")
+            raise VM_Error(f"Unrecognised memory segment: '{parts[1]}'")
         if not is_int(parts[2]):
-            raise Exception(f"Invalid offset: '{parts[2]}'. Expected integer n>=0")
+            raise VM_Error(f"Invalid offset: '{parts[2]}'. Expected integer n>=0")
         return parts
 
     def _vm_push(self):
@@ -90,9 +106,8 @@ class VMLine:
         elif parts[1] == "temp":
             pass
         if None in asm:
-            raise Exception(f"Push from memory segment '{parts[1]}' not yet implemented")
+            raise VM_Error(f"Push from memory segment '{parts[1]}' not yet implemented")
         self.__asm = tuple(asm)
-            
 
     def _vm_pop(self):
         parts = self.__validate_push_pop()
@@ -163,7 +178,7 @@ def parse_vm(lines: List[str]) -> List[VMLine]:
     lines = remove_unwanted_whitespace(lines)
     lines = remove_comments(lines)
     lines = remove_empty(lines)
-    lines = [VMLine(x,y) for x,y in lines]
+    lines = [VMLine(x, y) for x, y in lines]
     return lines
 
 

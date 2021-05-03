@@ -105,16 +105,16 @@ class VMLine:
     def _vm_push(self):
         parts = self.__validate_push_pop()
         if parts[1] == "local":
-            self.__asm.extend([f"@{parts[2]}", "D=A", "@LCL", "A=D+A", "D=M"])  # Put RAM[*LCL + i] into D
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@LCL", "A=D+M", "D=M"])  # Put RAM[*LCL + i] into D
             self.__asm.extend(self.PUT_D_ON_STACK)
         elif parts[1] == "argument":
-            self.__asm.extend([f"@{parts[2]}", "D=A", "@ARG", "A=D+A", "D=M"])  # Put RAM[*ARG + i] into D
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@ARG", "A=D+M", "D=M"])  # Put RAM[*ARG + i] into D
             self.__asm.extend(self.PUT_D_ON_STACK)
         elif parts[1] == "this":
-            self.__asm.extend([f"@{parts[2]}", "D=A", "@THIS", "A=D+A", "D=M"])  # Put RAM[*THIS + i] into D
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@THIS", "A=D+M", "D=M"])  # Put RAM[*THIS + i] into D
             self.__asm.extend(self.PUT_D_ON_STACK)
         elif parts[1] == "that":
-            self.__asm.extend([f"@{parts[2]}", "D=A", "@THAT", "A=D+A", "D=M"])  # Put RAM[*THAT + i] into D
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@THAT", "A=D+M", "D=M"])  # Put RAM[*THAT + i] into D
             self.__asm.extend(self.PUT_D_ON_STACK)
         elif parts[1] == "constant":
             self.__asm.extend([f"@{parts[2]}", "D=A"])
@@ -128,12 +128,12 @@ class VMLine:
             elif parts[2] == '1':
                 self.__asm.extend(["@THAT", "D=M"])
             else:
-                raise VM_Error(f"Push from pointer '{parts[2]}', but on values 0 or 1 are valid")
+                raise VM_Error(f"Push from pointer '{parts[2]}', but only values 0 or 1 are valid")
             self.__asm.extend(self.PUT_D_ON_STACK)
         elif parts[1] == "temp":
             offset = int(parts[2])
             if 0 <= offset <= 7:
-                address = self.TEMP + int(parts)
+                address = self.TEMP + offset
                 self.__asm.extend([f"@{address}", "D=M"])
                 self.__asm.extend(self.PUT_D_ON_STACK)
             else:
@@ -144,7 +144,50 @@ class VMLine:
 
     def _vm_pop(self):
         parts = self.__validate_push_pop()
-        pass
+        self.__asm.extend(self.DEC_SP)
+        if parts[1] == "local":
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@LCL", "D=D+M"])  # Compute address for popping into
+            self.__asm.extend(["@R13", "M=D"])  # Store computed address in R13
+            self.__asm.extend(self.POP_STACK_ON_D)
+            self.__asm.extend(["@R13", "A=M", "M=D"])  # Load R13 into A, and store D
+        elif parts[1] == "argument":
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@ARG", "D=D+M"])  # Compute address for popping into
+            self.__asm.extend(["@R13", "M=D"])  # Store computed address in R13
+            self.__asm.extend(self.POP_STACK_ON_D)
+            self.__asm.extend(["@R13", "A=M", "M=D"])  # Load R13 into A, and store D
+        elif parts[1] == "this":
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@THIS", "D=D+M"])  # Compute address for popping into
+            self.__asm.extend(["@R13", "M=D"])  # Store computed address in R13
+            self.__asm.extend(self.POP_STACK_ON_D)
+            self.__asm.extend(["@R13", "A=M", "M=D"])  # Load R13 into A, and store D
+        elif parts[1] == "that":
+            self.__asm.extend([f"@{parts[2]}", "D=A", "@THAT", "D=D+M"])  # Compute address for popping into
+            self.__asm.extend(["@R13", "M=D"])  # Store computed address in R13
+            self.__asm.extend(self.POP_STACK_ON_D)
+            self.__asm.extend(["@R13", "A=M", "M=D"])  # Load R13 into A, and store D
+        elif parts[1] == "constant":
+            raise VM_Error(f"Pop to constant not allowed")
+        elif parts[1] == "static":
+            self.__asm.extend(self.POP_STACK_ON_D)
+            self.__asm.extend([f"@{self.__file_name}.{parts[2]}", "M=D"])
+        elif parts[1] == "pointer":
+            self.__asm.extend(self.POP_STACK_ON_D)
+            if parts[2] == '0':
+                self.__asm.extend(["@THIS", "M=D"])
+            elif parts[2] == '1':
+                self.__asm.extend(["@THAT", "M=D"])
+            else:
+                raise VM_Error(f"Pop to pointer '{parts[2]}', but only values 0 or 1 are valid")
+        elif parts[1] == "temp":
+            offset = int(parts[2])
+            if 0 <= offset <= 7:
+                address = self.TEMP + offset
+                self.__asm.extend(self.POP_STACK_ON_D)
+                self.__asm.extend([f"@{address}", "M=D"])
+            else:
+                raise VM_Error(f"Trying to access temp memory segment out of range: 'RAM[*temp+{offset}]'")
+        else:
+            raise VM_Error(f"Pop from memory segment '{parts[1]}' not yet implemented")
 
     def _vm_add(self):
         self.__asm.extend(self.DEC_SP)
@@ -397,6 +440,15 @@ def remove_redundant_sp_moves(asm_lines: List[str]) -> List[str]:
     return optimiser.asm
 
 
+def remove_redundant_a_instructions(asm_lines: List[str]) -> List[str]:
+    new_asm = []
+    for i in range(0, len(asm_lines)-1):
+        if asm_lines[i].startswith('@') and asm_lines[i + 1].startswith('@'):
+            continue
+        new_asm.append(asm_lines[i])
+    return new_asm
+
+
 def parse_file(input_file_path: str,
                output_file_path: str,
                add_comments: bool):
@@ -408,8 +460,7 @@ def parse_file(input_file_path: str,
     lines = parse_vm(lines, file_name, add_comments)
     lines = convert_vm_to_asm(lines)
     lines = remove_redundant_sp_moves(lines)
-    # TODO add in rule to remove redundand SP++ followed by SP--
-    # TODO add in rule to remove redundand A instructions
+    lines = remove_redundant_a_instructions(lines)
     with open(output_file_path, "w+") as f:
         for line in lines:
             f.write(str(line))
